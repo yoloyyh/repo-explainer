@@ -2,9 +2,9 @@
 
 **语言** &nbsp;·&nbsp; [English](README.md) &nbsp;·&nbsp; **简体中文**
 
-> 把任意公开 GitHub 仓库变成一份既好看、又有证据支撑的解读报告 —— 非开发同学能读懂,工程师也信得过。一次运行同时产出 HTML 页面**和**Markdown 文档。
+> 把任意公开 GitHub 仓库**或本地代码目录**变成一份既好看、又有证据支撑的解读报告 —— 非开发同学能读懂,工程师也信得过。一次运行同时产出 HTML 页面**和**Markdown 文档。
 
-`repo-explainer` 是一条 6 阶段的命令行流水线,输入一个公开 GitHub 仓库链接,输出两份同步的报告,回答:
+`repo-explainer` 是一条 6 阶段的命令行流水线,输入**公开 GitHub 仓库链接或本地目录路径**,输出两份同步的报告,回答:
 
 - 这个项目到底是干什么的(用大白话讲)?
 - 面向谁、解决什么痛点?
@@ -12,7 +12,7 @@
 - 主流程是怎么走的?
 - 有哪些诚实的局限与取舍?
 
-每一个结论都引自真实源码,带 `path:line` 引用。报告里出现的每一个文件路径、目录路径和 `path:line` 证据,都是一个可点击的链接,直跳到锁定在 commit SHA 的 GitHub 源码。
+每一个结论都引自真实源码,带 `path:line` 引用。报告里出现的每一个文件路径、目录路径和 `path:line` 证据,都是一个可点击的链接,直跳到锁定在 commit SHA 的 GitHub 源码。**本地目录模式**:如果该目录是一个 github.com 远端的 git 检出,链接会自动锚定到工作区的 commit SHA;如果是非 git 目录,证据降级为等宽文本,报告依然完整可读。
 
 ---
 
@@ -137,11 +137,15 @@ unzip -d ~/.codex/skills/ repo-explainer.zip
 
 #### A4. 试一下
 
-在上述任意一个宿主装好后,直接在聊天里贴 GitHub 链接触发:
+在上述任意一个宿主装好后,直接在聊天里贴 **GitHub 链接或本地目录路径**触发:
 
 > 解读这个项目 https://github.com/tiangolo/fastapi
 >
 > explain this repo https://github.com/NousResearch/hermes-agent
+>
+> 分析下这个目录 ~/code/my-side-project
+>
+> explain this folder /Users/me/work/checkout-service
 
 Skill 会自动跑完 6 个阶段,返回两个产物:一份精致的 HTML 报告 + 一份可粘任意位置的 Markdown 报告。无需本地 Python 环境 —— agent 沙箱内置 `python3`、`git`、`jq` 与一个上下文里的 LLM。
 
@@ -156,8 +160,15 @@ Skill 会自动跑完 6 个阶段,返回两个产物:一份精致的 HTML 报告
 unzip repo-explainer.zip            # 或: git clone <本仓库>
 cd repo-explainer/
 
-# 2. 对任意公开 GitHub URL 跑 6 阶段流水线
+# 2. 对任意公开 GitHub URL 跑 6 阶段流水线 …
 TARGET="https://github.com/tiangolo/fastapi"
+
+#    …… 或者直接对本地目录跑(参数是已存在的路径会自动识别,
+#    歧义时加 --local 强制)。如果目录是 github.com 远端的 git 检出,
+#    owner / repo / branch / commit SHA 会从 .git/config 自动恢复,
+#    `path:line` 证据照样是可点击的 GitHub 永久链接。
+# TARGET="/home/me/code/my-side-project"
+# TARGET="~/work/checkout-service"
 
 # 阶段 1–3 是确定性 Python,无 LLM,只用 stdlib
 python3 scripts/fetch_repo.py      "$TARGET"                                > meta.json

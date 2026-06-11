@@ -2,9 +2,9 @@
 
 **Languages** &nbsp;·&nbsp; **English** &nbsp;·&nbsp; [简体中文](README.zh-CN.md)
 
-> Turn any public GitHub repository into a beautiful, evidence-backed report — readable by non-developers, trusted by engineers. One run produces an HTML page **and** a Markdown document side-by-side.
+> Turn any public GitHub repository **or local code directory** into a beautiful, evidence-backed report — readable by non-developers, trusted by engineers. One run produces an HTML page **and** a Markdown document side-by-side.
 
-`repo-explainer` is a 6-stage command-line pipeline that ingests a public GitHub repo URL and produces two synchronized reports answering:
+`repo-explainer` is a 6-stage command-line pipeline that ingests **either a public GitHub repo URL or a local directory path** and produces two synchronized reports answering:
 
 - What does the project actually do, in plain language?
 - Who is it for and what problem does it solve?
@@ -12,7 +12,7 @@
 - What is the main user flow?
 - What are the honest limitations and trade-offs?
 
-Every claim is grounded in real source code with `path:line` citations. Every code reference — file paths, directory paths, and `path:line` evidence — is a clickable link that jumps straight to the commit-pinned source on GitHub.
+Every claim is grounded in real source code with `path:line` citations. Every code reference — file paths, directory paths, and `path:line` evidence — is a clickable link that jumps straight to the commit-pinned source on GitHub. For local directories that are git checkouts of a github.com remote, links are auto-anchored to the working-tree commit SHA; for non-git local dirs, evidence renders as monospace text and the report still works.
 
 ---
 
@@ -137,11 +137,15 @@ Then in any Codex chat:
 
 #### A4. Try it
 
-Once installed in any of the hosts above, trigger from chat with a GitHub URL:
+Once installed in any of the hosts above, trigger from chat with **a GitHub URL or a local directory path**:
 
 > 解读这个项目 https://github.com/tiangolo/fastapi
 >
 > explain this repo https://github.com/NousResearch/hermes-agent
+>
+> 分析下这个目录 ~/code/my-side-project
+>
+> explain this folder /Users/me/work/checkout-service
 
 The skill auto-runs all 6 stages and returns two artifacts: the polished HTML report and the paste-anywhere Markdown report. No local Python setup needed — the agent's sandbox provides `python3`, `git`, `jq`, and an LLM in-context.
 
@@ -156,8 +160,15 @@ Useful for batch jobs, CI integration, or if you don't have Mira.
 unzip repo-explainer.zip            # or: git clone <this-repo>
 cd repo-explainer/
 
-# 2. Run the 6-stage pipeline against any public GitHub URL
+# 2. Run the 6-stage pipeline against any public GitHub URL …
 TARGET="https://github.com/tiangolo/fastapi"
+
+#    … OR against a local directory (auto-detected; force with --local
+#    if the path is ambiguous). Owner / repo / branch / commit SHA are
+#    auto-recovered from .git/config when the dir is a git checkout, so
+#    path:line evidence stays clickable.
+# TARGET="/home/me/code/my-side-project"
+# TARGET="~/work/checkout-service"
 
 # Stages 1–3 are deterministic Python — no LLM, stdlib only
 python3 scripts/fetch_repo.py      "$TARGET"                                > meta.json

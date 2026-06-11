@@ -358,15 +358,8 @@ code {{
     <div class="hero-content">
       <h1>{project_name}</h1>
       <p class="one-liner">{one_liner}</p>
-      <a class="repo-link" href="{repo_url}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-        {repo_url}
-      </a>
-      <div class="badges">
-        <span class="badge">★ {stars}</span>
-        <span class="badge">主语言 {language}</span>
-        <span class="badge">commit {sha_short}</span>
-      </div>
+      {repo_link}
+      <div class="badges">{badges}</div>
     </div>
   </div>
 
@@ -431,7 +424,7 @@ code {{
 
   <div class="footer">
     由 repo-explainer 基于源码生成 · 每条结论可点 path:line 跳转 GitHub 校对<br>
-    commit {sha_short} · 共扫描 {file_count} 个代码文件 · 主题:<span id="cur-theme">{theme_name}</span>
+    {footer_meta} · 共扫描 {file_count} 个代码文件 · 主题:<span id="cur-theme">{theme_name}</span>
   </div>
 </div>
 
@@ -650,6 +643,10 @@ def evidence_link(ev: str, repo_url: str, sha: str) -> str:
     path, line = ev.rsplit(":", 1)
     if not line.isdigit():
         path = ev; line = "1"
+    # Local-directory mode: no GitHub URL is available, so render the
+    # evidence as monospace text rather than a broken-link anchor.
+    if not repo_url:
+        return f'<code class="evidence">{esc(ev)}</code>'
     url = f"{repo_url}/blob/{sha}/{path}#L{line}"
     # No target attr — <base target="_top"> in <head> forces top-level
     # navigation, which works inside Mira / Lark / Notion preview iframes
@@ -861,22 +858,77 @@ def main():
 
     summary = json.loads(Path(args.summary_json).read_text())
     meta = json.loads(Path(args.meta_json).read_text())
-    repo_url = f"https://github.com/{meta['owner']}/{meta['repo']}"
-    sha = meta["commit_sha"]
-    gh_meta = meta.get("github_meta", {})
+    # Local-mode safety: owner/repo/commit_sha may all be missing if the
+    # source was a non-git local directory. Renderers downstream already
+    # degrade clickable links to plain code when repo_url is "" — here we
+    # only need to compute the values defensively (no KeyError).
+    owner = meta.get("owner") or ""
+    repo = meta.get("repo") or ""
+    repo_url = f"https://github.com/{owner}/{repo}" if owner and repo else ""
+    sha = meta.get("commit_sha") or ""
+    gh_meta = meta.get("github_meta") or {}
 
     arch_src = summary.get("architecture_mermaid", "graph TD\n  A[未生成]")
     palette = active.get("diagram_class_palette", {})
     arch_src_enriched, legend = enrich_architecture_mermaid(arch_src, palette)
 
+    # ---- hero: repo-link + badges (skip pieces we have no data for) -----
+    if repo_url:
+        gh_svg = (
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">'
+            '<path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 '
+            '11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416'
+            '-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083'
+            '-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 '
+            '2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305'
+            '-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124'
+            '-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 '
+            '1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 '
+            '3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 '
+            '1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 '
+            '5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 '
+            '4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12'
+            '-12z"/></svg>'
+        )
+        repo_link_html = (
+            f'<a class="repo-link" href="{esc(repo_url)}">{gh_svg}{esc(repo_url)}</a>'
+        )
+    else:
+        # Local-directory mode: show the local path read-only instead.
+        local_path = meta.get("local_path") or ""
+        repo_link_html = (
+            f'<div class="repo-link" title="本地目录,无远程仓库链接">'
+            f'📁 {esc(local_path)}</div>' if local_path else ""
+        )
+
+    badge_bits: list[str] = []
+    if gh_meta.get("stars") is not None:
+        badge_bits.append(f'<span class="badge">★ {esc(gh_meta.get("stars"))}</span>')
+    lang = gh_meta.get("language") or gh_meta.get("primary_language")
+    if lang:
+        badge_bits.append(f'<span class="badge">主语言 {esc(lang)}</span>')
+    if sha:
+        badge_bits.append(f'<span class="badge">commit {esc(sha[:7])}</span>')
+    if meta.get("branch"):
+        badge_bits.append(f'<span class="badge">branch {esc(meta["branch"])}</span>')
+    if meta.get("mode") == "local":
+        badge_bits.append('<span class="badge">本地目录</span>')
+    badges_html = "".join(badge_bits)
+
+    footer_bits: list[str] = []
+    if sha:
+        footer_bits.append(f"commit {esc(sha[:7])}")
+    if meta.get("mode") == "local":
+        footer_bits.append("本地目录分析")
+    footer_meta = " · ".join(footer_bits) if footer_bits else "基于源码生成"
+
     out = HTML_TPL.format(
-        title=esc(summary.get("project_name", meta["repo"])),
-        project_name=esc(summary.get("project_name", meta["repo"])),
+        title=esc(summary.get("project_name", repo or "Local Project")),
+        project_name=esc(summary.get("project_name", repo or "Local Project")),
         one_liner=esc(summary.get("one_liner", gh_meta.get("description", ""))),
-        repo_url=repo_url,
-        stars=esc(gh_meta.get("stars", "?")),
-        language=esc(gh_meta.get("language", "?")),
-        sha_short=esc(sha[:7]),
+        repo_link=repo_link_html,
+        badges=badges_html,
+        footer_meta=footer_meta,
         who_for=esc(summary.get("who_for", "")),
         problem_solved=esc(summary.get("problem_solved", "")),
         core_value=esc(summary.get("core_value", "")),

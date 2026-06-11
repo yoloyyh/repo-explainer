@@ -1,27 +1,34 @@
 ---
 name: repo-explainer
 description: |
-  Decode a GitHub repository into a non-developer-friendly report,
-  delivered as BOTH a polished HTML page AND a Markdown document.
-  Given a GitHub repo URL, this skill shallow-clones the repo, scans the
-  ACTUAL source code (not just README), and produces two synchronized
-  reports containing: project overview, tech stack table, architecture
-  diagram, key module table, main user-flow sequence diagram, API/CLI
-  surface table, third-party dependency table, and a "what this project
-  actually does in plain language" section. The HTML is themed and
-  print-ready; the Markdown embeds native Mermaid blocks and pastes
-  cleanly into Feishu / Notion / GitHub. Every conclusion is backed by
-  `path:line` references so the user can verify without reading the code
-  themselves.
+  Decode a GitHub repository **or a local code directory** into a
+  non-developer-friendly report, delivered as BOTH a polished HTML page
+  AND a Markdown document. Given either a GitHub repo URL or a local
+  directory path, this skill prepares the source (shallow-clone for URLs,
+  in-place for local paths), scans the ACTUAL source code (not just
+  README), and produces two synchronized reports containing: project
+  overview, tech stack table, architecture diagram, key module table,
+  main user-flow sequence diagram, API/CLI surface table, third-party
+  dependency table, and a "what this project actually does in plain
+  language" section. The HTML is themed and print-ready; the Markdown
+  embeds native Mermaid blocks and pastes cleanly into Feishu / Notion /
+  GitHub. Every conclusion is backed by `path:line` references — for
+  GitHub URLs (and local clones with a github remote), references render
+  as clickable permalinks anchored to the commit SHA; for non-git local
+  dirs they render as monospace text.
 
-  TRIGGER WHEN the user gives a github.com/<owner>/<repo> URL and asks any
-  of: "解读这个项目"、"分析这个仓库"、"讲讲这个 GitHub 项目"、"帮我看下这个 repo
-  做什么"、"explain this repo"、"analyze this github project"、"what does
-  this repository do"、"understand this codebase"、"画一下这个项目的架构"。
+  TRIGGER WHEN the user gives a `github.com/<owner>/<repo>` URL **OR**
+  a local directory path (absolute / relative / `~`-prefixed) AND asks
+  any of: "解读这个项目"、"分析这个仓库"、"分析这个目录"、"讲讲这个 GitHub 项目"、
+  "帮我看下这个 repo / 这个文件夹做什么"、"explain this repo"、
+  "analyze this github project"、"analyze this folder"、
+  "what does this repository do"、"understand this codebase"、
+  "画一下这个项目的架构"。
 
-  DO NOT TRIGGER for: non-GitHub URLs, private/internal GitLab, single-file
-  gists, or when the user only wants to run/install the project (not
-  understand it).
+  DO NOT TRIGGER for: private/internal GitLab URLs, single-file gists,
+  or when the user only wants to run/install the project (not understand
+  it). Local-directory mode IS in-scope — including monorepos
+  (use `--subpath`) and not-yet-pushed work-in-progress checkouts.
 ---
 
 # repo-explainer
@@ -44,13 +51,26 @@ just the README. Cite `path:line` for each non-trivial conclusion.
 
 ## Inputs
 
-- **Required**: a public GitHub repo URL — `https://github.com/<owner>/<repo>`
-  (with or without `/tree/<branch>` suffix)
-- **Optional**: a sub-path to focus on (for monorepos), e.g. `packages/core`
-- **Optional**: target audience hint — `pm` | `designer` | `engineer` (default `pm`)
+The skill accepts **either** of two source forms:
 
-If the user gives a non-GitHub URL, refuse politely and point at the
-scope limitation.
+1. **GitHub URL** — `https://github.com/<owner>/<repo>` (with optional
+   `/tree/<branch>` suffix). The repo is shallow-cloned into
+   `./workspace/<owner>__<repo>/`.
+2. **Local directory path** — absolute, relative, or `~`-prefixed.
+   Analyzed in-place; nothing is cloned or copied. If the directory is a
+   git checkout whose `origin` (or first available remote) points at
+   github.com, the owner / repo / branch / commit SHA are auto-recovered
+   so `path:line` evidence still renders as clickable permalinks. If
+   not, evidence renders as monospace text and the report still works.
+
+Optional:
+
+- **`--subpath`** — focus on a sub-directory (for monorepos), e.g.
+  `packages/core`. Applies to both modes.
+- Audience hint — `pm` | `designer` | `engineer` (default `pm`).
+
+If the user gives a non-GitHub URL (and not a local path), refuse
+politely and point at the scope limitation.
 
 ## Workflow
 
@@ -60,8 +80,22 @@ script under `scripts/`. Do NOT skip stages.
 ### Stage 1 — Fetch
 
 ```bash
+# Remote mode — shallow-clone a public GitHub repo
 python3 scripts/fetch_repo.py <github_url> [--subpath <path>]
+
+# Local mode — analyze a directory in-place (auto-detected when the
+# argument is an existing path; force with --local for ambiguous cases)
+python3 scripts/fetch_repo.py <local_dir> [--subpath <path>] [--local]
 ```
+
+The script auto-detects the mode:
+
+- Argument starts with `http://` / `https://` and contains `github.com`
+  → **remote mode** (clone)
+- Argument is an existing local directory → **local mode** (in-place)
+- Otherwise → fall back to URL parser (which will refuse non-GitHub URLs)
+
+**Remote mode** behavior:
 
 - Shallow-clone (`--depth=1`) to `./workspace/<owner>__<repo>/`
 - Hard cap repo size at **500 MB**; if exceeded, abort and ask the user
@@ -69,6 +103,24 @@ python3 scripts/fetch_repo.py <github_url> [--subpath <path>]
 - Capture default branch, latest commit SHA, repo description, star
   count, primary language (via GitHub REST API, no auth needed for public
   repos but works with `GH_TOKEN` if set)
+
+**Local mode** behavior:
+
+- Resolve the path (absolute / relative / `~`-prefixed); reject if not a
+  directory
+- Apply the same 500 MB size cap (excluding `.git`, `node_modules`,
+  `venv`, `__pycache__`, `dist`, `build`, `target`)
+- Try `git -C <path>` for: `HEAD` SHA, current branch, `origin` remote.
+  If the remote URL matches `github.com/<owner>/<repo>(.git)?`, owner /
+  repo / branch / commit_sha are populated so downstream `path:line`
+  evidence becomes clickable permalinks identical to remote mode.
+- If the directory is not a git repo, all four GitHub coordinates are
+  left null — the renderers degrade evidence to monospace text and the
+  hero shows a 📁 `<local-path>` badge instead of a repo link.
+
+The output `meta.json` schema is identical across both modes; only the
+`mode` field (`"remote"` / `"local"`) and the optional null-ness of
+owner / repo / branch / commit_sha distinguish them.
 
 ### Stage 2 — Scan
 
@@ -256,11 +308,16 @@ contract:
 
 ## Examples
 
-**Trigger**:
+**Trigger — GitHub URL**:
 > 帮我解读一下 https://github.com/tiangolo/fastapi 这个项目
 
-**Not a trigger** (no GitHub URL):
-> 帮我分析下我们组的代码仓库
+**Trigger — local directory**:
+> 帮我分析下 ~/code/my-side-project 这个目录在做什么
+
+> explain this folder /Users/me/work/checkout-service
+
+**Not a trigger** (private/internal GitLab, out of scope):
+> 帮我分析下 https://code.byted.org/some/private/repo
 
 **Not a trigger** (only wants to run, not understand):
 > 这个 github 项目怎么跑起来
